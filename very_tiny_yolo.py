@@ -192,9 +192,7 @@ def extract_labels_yolo(path_list):
           labels[i,(B*5+CLASSES)*(grid_no-1) + 5*k + 1] = float(data[2])
           labels[i,(B*5+CLASSES)*(grid_no-1) + 5*k + 2] = float(data[3])
           labels[i,(B*5+CLASSES)*(grid_no-1) + 5*k + 3] = float(data[4])
-          box1 = (int(float(data[1])*IMAGE_SIZE),int(float(data[2])*IMAGE_SIZE),int(float(data[3])*IMAGE_SIZE),int(float(data[4])*IMAGE_SIZE))
-          box2 = (col_no*IMAGE_SIZE/S,row_no*IMAGE_SIZE/S,IMAGE_SIZE/S,IMAGE_SIZE/S)
-          labels[i,(B*5+CLASSES)*(grid_no-1) + 5*k + 4] = iou(box1,box2)
+          labels[i,(B*5+CLASSES)*(grid_no-1) + 5*k + 4] = 1
 
   return labels
 
