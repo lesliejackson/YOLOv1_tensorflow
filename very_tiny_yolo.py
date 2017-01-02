@@ -27,7 +27,7 @@ COORD_W = 5
 NOOBJ_W = 0.5
 TRAIN_IMG_DIR = '/home/yy/train/'
 TRAIN_LABEL_DIR = '/home/yy/labels/'
-IOU_THRESHOLD = 0.5
+PROB_THRESHOLD = 0.5
 NMS_THRESHOLD = 0.4
 CLASSES_NAME = ["DaLai","NonDaLai"]
 TRAIN_SIZE = 122
@@ -101,15 +101,16 @@ def nms(dets, thresh):
 def get_results(output):
   results = []
   classes = []
+  probs = numpy.ndarray(shape=[CLASSES,])
   for p in range(B):
     for j in range(4 + p*5, S*S*(B*5+CLASSES), B*5+CLASSES):
-      if output[0][j] > IOU_THRESHOLD:
+      for i in range(CLASSES):
+        probs[i] = output[0][j] * output[0][j + 1+ (B-1-p)*5 + i]
+
+      cls_ind = probs.argsort()[::-1][0]
+      if probs[cls_ind] > PROB_THRESHOLD:
         results.append([output[0][j-4] - output[0][j-2]/2, output[0][j-3] - output[0][j-3]/2, output[0][j-4] + output[0][j-2]/2, output[0][j-3] + output[0][j-3]/2, output[0][j]])
-        # classes.append(tf.argmin(tf.abs(output[0, j + 1+ (B-1-p)*5:j + 1+ (B-1-p)*5 + CLASSES]-1),axis=1))
-        cls_abs = tf.abs(output[0, j + 1+ (B-1-p)*5:j + 1+ (B-1-p)*5 + CLASSES]-1)
-        distance = tf.reshape(cls_abs, [1, cls_abs.get_shape().as_list()[0]])
-        cls_arg = tf.argmin(distance,axis=1)
-        classes.append(cls_arg)
+        classes.append(cls_ind)
 
   res = numpy.array(results).astype(numpy.float32)
   keep = nms(res, NMS_THRESHOLD)
@@ -117,7 +118,7 @@ def get_results(output):
   classes_ = []
   for i in keep:
     results_.append(results[i])
-    classes_.append(classes[i][0])
+    classes_.append(classes[i])
 
   return results_,classes_
 
@@ -230,7 +231,7 @@ def test(img):
     out = model(data)
     out = sess.run(out)
     results,classes = get_results(out)
-    show_results(img, results, sess.run(classes))
+    show_results(img, results, classes)
 
 def main(argv=None):
   num_epochs = NUM_EPOCHS
@@ -243,10 +244,6 @@ def main(argv=None):
       tf.float32,
       shape=(BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, NUM_CHANNELS))
   train_labels_node = tf.placeholder(tf.float32, shape=(BATCH_SIZE, S*S*(B*5+CLASSES)))
-
-  # The variables below hold all the trainable weights. They are passed an
-  # initial value which will be assigned when we call:
-  # {tf.global_variables_initializer().run()}
 
   logits = model(train_data_node, True)
   loss = loss_func_yolo(logits, train_labels_node)
@@ -275,7 +272,6 @@ def main(argv=None):
   tf.summary.scalar("lr", learning_rate)
   merged_summary = tf.summary.merge_all()
   with tf.Session() as sess:
-    # Run all the initializers to prepare the trainable parameters
 
     tf.global_variables_initializer().run()
     saver = tf.train.Saver()
@@ -283,8 +279,6 @@ def main(argv=None):
     writer = tf.summary.FileWriter('/home/yy/tensorboard', sess.graph)
 
     for step in xrange(int(num_epochs * TRAIN_SIZE) // BATCH_SIZE):
-      # Compute the offset of the current minibatch in the data.
-      # Note that we could use better randomization across epochs.
       offset = (step * BATCH_SIZE) % (TRAIN_SIZE - BATCH_SIZE)
       batch_data = extract_data_yolo(get_next_minibatch(offset, train_img_list))
       batch_labels = extract_labels_yolo(get_next_minibatch(offset, train_img_list))
