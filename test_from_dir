@@ -1,0 +1,10 @@
+import cv2
+from PIL import Image
+import numpy as np
+import argparse
+import os
+
+test_img_dir = '/home/yy/train'
+for dirpath,dirnames,filenames in os.walk(test_img_dir):
+  for filename in filenames:
+    os.system('python very_tiny_yolo.py --test --test_img_path' + ' ' + os.path.join(dirpath,filename))
