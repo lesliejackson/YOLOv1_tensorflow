@@ -28,23 +28,23 @@ NOOBJ_W = 0.5
 TRAIN_IMG_DIR = '/home/yy/train/'
 TRAIN_LABEL_DIR = '/home/yy/labels/'
 PROB_THRESHOLD = 0.5
-NMS_THRESHOLD = 0.4
+NMS_THRESHOLD = 0.5
 CLASSES_NAME = ["DaLai","NonDaLai"]
 TRAIN_SIZE = 122
 alpha = 0.1
-TEST_IMG_PATH = '/home/yy/test.jpg'
+TEST_IMG_PATH = '/home/yy/109.jpg'
 EVAL_FREQUENCY = 100
 
 
-conv1_weights = tf.Variable(tf.truncated_normal([3, 3, NUM_CHANNELS, 64], stddev=0.1, seed=SEED, dtype=tf.float32))
-conv1_biases = tf.Variable(tf.zeros([64], dtype=tf.float32))
-conv2_weights = tf.Variable(tf.truncated_normal([3, 3, 64, 128], stddev=0.1, seed=SEED, dtype=tf.float32))
+conv1_weights = tf.Variable(tf.truncated_normal([3, 3, NUM_CHANNELS, 64], stddev=0.01, seed=SEED, dtype=tf.float32))
+conv1_biases = tf.Variable(tf.constant(0.1, shape=[64], dtype=tf.float32))
+conv2_weights = tf.Variable(tf.truncated_normal([3, 3, 64, 128], stddev=0.01, seed=SEED, dtype=tf.float32))
 conv2_biases = tf.Variable(tf.constant(0.1, shape=[128], dtype=tf.float32))
 
 
-fc1_weights = tf.Variable(tf.truncated_normal([IMAGE_SIZE * IMAGE_SIZE //16  * 128, 128], stddev=0.1, seed=SEED, dtype=tf.float32))
+fc1_weights = tf.Variable(tf.truncated_normal([IMAGE_SIZE * IMAGE_SIZE //16  * 128, 128], stddev=0.01, seed=SEED, dtype=tf.float32))
 fc1_biases = tf.Variable(tf.constant(0.1, shape=[128], dtype=tf.float32))
-fc2_weights = tf.Variable(tf.truncated_normal([128, S*S*(B*5+CLASSES)], stddev=0.1, seed=SEED, dtype=tf.float32))
+fc2_weights = tf.Variable(tf.truncated_normal([128, S*S*(B*5+CLASSES)], stddev=0.01, seed=SEED, dtype=tf.float32))
 fc2_biases = tf.Variable(tf.constant(0.1, shape=[S*S*(B*5+CLASSES)], dtype=tf.float32))
 
 def model(data, train=False):
@@ -113,32 +113,35 @@ def get_results(output):
         classes.append(cls_ind)
 
   res = numpy.array(results).astype(numpy.float32)
-  keep = nms(res, NMS_THRESHOLD)
-  results_ = []
-  classes_ = []
-  for i in keep:
-    results_.append(results[i])
-    classes_.append(classes[i])
+  if len(res) != 0:
+    keep = nms(res, NMS_THRESHOLD)
+    results_ = []
+    classes_ = []
+    for i in keep:
+      results_.append(results[i])
+      classes_.append(classes[i])
 
-  return results_,classes_
+    return results_,classes_
+  else:
+    return [],[]
 
 def show_results(img_path, results, classes):
   img = cv2.imread(img_path).copy()
-  for i in range(len(results)):
-    x1 = int(results[i][0]*IMAGE_SIZE - results[i][2]/2)
-    y1 = int(results[i][1]*IMAGE_SIZE - results[i][3]/2)
-    x2 = int(results[i][0]*IMAGE_SIZE + results[i][2]/2)
-    y2 = int(results[i][1]*IMAGE_SIZE + results[i][3]/2)
-    score = results[i][4]
-    cv2.rectangle(img, (x1,y1), (x2,y2), (0,255,0), 2)
-    cv2.putText(img, CLASSES_NAME[classes[i]] + ' : %.2f' % results[i][4], (x1+5,y1-7), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0), 1)
+  if len(results) != 0:
+    for i in range(len(results)):
+      x1 = int(results[i][0]*img.shape[1])
+      y1 = int(results[i][1]*img.shape[0])
+      x2 = int(results[i][2]*img.shape[1])
+      y2 = int(results[i][3]*img.shape[0])
+      score = results[i][4]
+      cv2.rectangle(img, (x1,y1), (x2,y2), (0,255,0), 2)
+      cv2.putText(img, CLASSES_NAME[classes[i]] + ' : %.2f' % results[i][4], (x1+5,y1-7), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0), 1)
 
-  cv2.imshow('prediction', img)
   cv2.imwrite('/home/yy/prediction/' + img_path.split('/')[-1], img)
 
 def get_next_minibatch(offset, path_list):
   if offset+BATCH_SIZE > len(path_list):
-    random.shuffle(path_list)
+    # random.shuffle(path_list)
     return path_list[:BATCH_SIZE]
   else:
     return path_list[offset:offset+BATCH_SIZE]
@@ -202,15 +205,15 @@ def loss_func_yolo(output, exp):
 
   for i in range(BATCH_SIZE):
     for j in range(0, S*S*(B*5+CLASSES), B*5+CLASSES):
-      res += COORD_W * tf.sign(exp[i][j+2]) * (tf.square(output[i][j]-exp[i][j]) + tf.square(output[i][j+1]-exp[i][j+1]) + 
-                                               tf.square(output[i][j+2]- exp[i][j+2]) + 
+      res += COORD_W * tf.sign(exp[i][j+2]) * (tf.square(output[i][j] - exp[i][j]) + tf.square(output[i][j+1]-exp[i][j+1]) + 
+                                               tf.square(output[i][j+2] - exp[i][j+2]) + 
                                                tf.square(output[i][j+3] - exp[i][j+3]))
 
       res += tf.sign(exp[i][j+2]) * (tf.square(output[i][j+4] - exp[i][j+4]))
 
       res += NOOBJ_W * tf.sign(tf.floor(exp[i][j])) * (tf.square(output[i][j+4] - exp[i][j+4]))
 
-      res += COORD_W * tf.sign(exp[i][j+7]) * (tf.square(output[i][j+5]-exp[i][j+5]) + tf.square(output[i][j+6]-exp[i][j+6]) + 
+      res += COORD_W * tf.sign(exp[i][j+7]) * (tf.square(output[i][j+5] - exp[i][j+5]) + tf.square(output[i][j+6]-exp[i][j+6]) + 
                                                tf.square(output[i][j+7] - exp[i][j+7]) + 
                                                tf.square(output[i][j+8] - exp[i][j+8]))
 
@@ -226,7 +229,7 @@ def test(img):
   with tf.Session() as sess:
     tf.global_variables_initializer().run()
     saver = tf.train.Saver()
-    saver.restore(sess, '/home/yy/model.ckpt')
+    saver.restore(sess, '/home/yy/tf_saver_models/model_448.ckpt')
     data = extract_data_yolo(img, False)
     out = model(data)
     out = sess.run(out)
@@ -256,7 +259,7 @@ def main(argv=None):
   batch = tf.Variable(0, dtype=tf.float32)
 
   learning_rate = tf.train.exponential_decay(
-      0.0001,                
+      0.01,                
       batch * BATCH_SIZE,  
       TRAIN_SIZE,          
       0.95,
@@ -265,7 +268,7 @@ def main(argv=None):
   op_func = tf.train.MomentumOptimizer(learning_rate,0.9)
 
   tvars = tf.trainable_variables()
-  grads, _ = tf.clip_by_global_norm(tf.gradients(loss, tvars), 0.1)
+  grads, _ = tf.clip_by_global_norm(tf.gradients(loss, tvars), 0.5)
   optimizer = op_func.apply_gradients(zip(grads, tvars), global_step=batch)
 
   tf.summary.scalar("loss", loss)
@@ -291,9 +294,22 @@ def main(argv=None):
       if step % EVAL_FREQUENCY == 0:
         print('loss: %.6f' % los)
         writer.add_summary(summary, step)
-    save_path = saver.save(sess, "/home/yy/model.ckpt")
+    save_path = saver.save(sess, "/home/yy/tf_saver_models/model_448.ckpt")
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='YOLO demo')
+    parser.add_argument('--train', help='train the model', action='store_true')
+    parser.add_argument('--test', help='test the model', action='store_true')
+    parser.add_argument('--test_img_path', help='img path to test', type=str)
 
+    args = parser.parse_args()
+
+    return args
 if __name__ == '__main__':
-  #tf.app.run()
-  test(TEST_IMG_PATH)
+  args = parse_args()
+  if args.train and args.test:
+    print('Error: cannot train and test at the same time')
+  elif args.train:
+    tf.app.run()
+  else:
+    test(args.test_img_path)
