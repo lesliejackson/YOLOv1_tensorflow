@@ -19,13 +19,13 @@ NUM_CHANNELS = 3
 PIXEL_DEPTH = 255
 SEED = 66478
 BATCH_SIZE = 1
-NUM_EPOCHS = 20
+NUM_EPOCHS = 100
 S = 7
 B = 2
 CLASSES = 2
 COORD_W = 5
 NOOBJ_W = 0.5
-PROB_THRESHOLD = 0.5
+PROB_THRESHOLD = 0.25
 NMS_THRESHOLD = 0.5
 TRAIN_SIZE = 122
 alpha = 0.1
@@ -34,10 +34,10 @@ TRAIN_IMG_DIR = '/home/yy/train/'
 TRAIN_LABEL_DIR = '/home/yy/labels/'
 CLASSES_NAME = ["DaLai","NonDaLai"]
 TEST_IMG_PATH = '/home/yy/109.jpg'
-RES_DIR = '/home/yy/pred_shuffle/'
-SAVE_MODEL = '/home/yy/tf_saver_models/model_newls.ckpt'
+RES_DIR = '/home/yy/pred_decay1W/'
+SAVE_MODEL = '/home/yy/tf_saver_models/model_conv5_epoch100_decay10000.ckpt'
 SAVE_TENSORBOARD = '/home/yy/tensorboard'
-TEST_MODEL = '/home/yy/tf_saver_models/model_newls.ckpt'
+TEST_MODEL = '/home/yy/tf_saver_models/model_conv5_epoch100_decay10000.ckpt'
 
 
 conv1_weights = tf.Variable(tf.truncated_normal([3, 3, NUM_CHANNELS, 16], stddev=0.1, seed=SEED, dtype=tf.float32))
@@ -200,7 +200,7 @@ def show_results(img_path, results, classes):
       y2 = int(results[i][3]*img.shape[0])
       score = results[i][4]
       cv2.rectangle(img, (x1,y1), (x2,y2), (0,255,0), 2)
-      cv2.putText(img, CLASSES_NAME[classes[i]] + ' : %.2f' % results[i][4], (x1+5,y1-7), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0), 1)
+      cv2.putText(img, CLASSES_NAME[classes[i]] + ' : %.2f' % results[i][4], (x1+5,y1-7), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0), 2)
 
   cv2.imwrite(RES_DIR + img_path.split('/')[-1], img)
 
@@ -213,21 +213,36 @@ def get_next_minibatch(offset, path_list):
 
 def extract_data_yolo(path_list, train=True):
   if train:
-    data = numpy.ndarray(shape=(len(path_list),IMAGE_SIZE,IMAGE_SIZE,NUM_CHANNELS),dtype=numpy.float32)
+    data = numpy.ndarray(shape=(len(path_list),IMAGE_SIZE,IMAGE_SIZE,NUM_CHANNELS + 2),dtype=numpy.float32)
+
+    for i in range(len(path_list)):
+      for j in range(IMAGE_SIZE):
+          data[i,j,:,-2] = j/IMAGE_SIZE
+
+    for i in range(len(path_list)):
+      for j in range(IMAGE_SIZE):
+          data[i,:,j,-1] = j/IMAGE_SIZE
 
     for i in range(len(path_list)):
       img = Image.open(TRAIN_IMG_DIR+path_list[i]+'.jpg')
       img_resize = img.resize((IMAGE_SIZE,IMAGE_SIZE))
-      data[i] = numpy.array(img_resize).astype(numpy.float32).reshape(IMAGE_SIZE,IMAGE_SIZE,NUM_CHANNELS)
-
-    data = (data - (PIXEL_DEPTH / 2.0)) / PIXEL_DEPTH
+      data[i,:,:,:-2] = numpy.array(img_resize).astype(numpy.float32).reshape(IMAGE_SIZE,IMAGE_SIZE,NUM_CHANNELS)
+      data[i,:,:,:-2] = (data[i,:,:,:-2] - (PIXEL_DEPTH / 2.0)) / PIXEL_DEPTH
+    
     return data
   else:
-    data = numpy.ndarray(shape=(1,IMAGE_SIZE,IMAGE_SIZE,NUM_CHANNELS), dtype=numpy.float32)
+    data = numpy.ndarray(shape=(1,IMAGE_SIZE,IMAGE_SIZE,NUM_CHANNELS + 2), dtype=numpy.float32)
+
+    for i in range(IMAGE_SIZE):
+        data[0,i,:,-2] = i/IMAGE_SIZE
+
+    for i in range(IMAGE_SIZE):
+        data[0,:,i,-1] = i/IMAGE_SIZE
+
     img = Image.open(path_list)
     img_resize = img.resize((IMAGE_SIZE,IMAGE_SIZE))
-    data = numpy.array(img_resize).astype(numpy.float32).reshape(1,IMAGE_SIZE,IMAGE_SIZE,NUM_CHANNELS)
-    data = (data - (PIXEL_DEPTH / 2.0)) / PIXEL_DEPTH
+    data[0,:,:,:-2] = numpy.array(img_resize).astype(numpy.float32).reshape(1,IMAGE_SIZE,IMAGE_SIZE,NUM_CHANNELS)
+    data[0,:,:,:-2] = (data[0,:,:,:-2] - (PIXEL_DEPTH / 2.0)) / PIXEL_DEPTH
     return data
 
 def iou(box1,box2):
@@ -265,28 +280,28 @@ def extract_labels_yolo(path_list):
 
   return labels
 
-def loss_func_yolo(output, exp):
+def loss_func_yolo(output, label):
   res = 0
 
   for i in range(BATCH_SIZE):
     for j in range(0, S*S*(B*5+CLASSES), B*5+CLASSES):
-      res += COORD_W * tf.sign(exp[i][j+2]) * (tf.square(output[i][j] - exp[i][j]) + tf.square(output[i][j+1]-exp[i][j+1]) + 
-                                               tf.square(tf.sqrt(tf.abs(output[i][j+2])) - tf.sqrt(exp[i][j+2])) + 
-                                               tf.square(tf.sqrt(tf.abs(output[i][j+3])) - tf.sqrt(exp[i][j+3])))
+      res += COORD_W * tf.sign(label[i][j+2]) * (tf.square(output[i][j] - label[i][j]) + tf.square(output[i][j+1]-label[i][j+1]) + 
+                                               tf.square(output[i][j+2]/(label[i][j+2]+1e-7) - 1) + 
+                                               tf.square(output[i][j+3]/(label[i][j+3]+1e-7) - 1))
 
-      res += tf.sign(exp[i][j+2]) * (tf.square(output[i][j+4] - exp[i][j+4]))
+      res += tf.sign(label[i][j+2]) * (tf.square(output[i][j+4] - label[i][j+4]))
 
-      res += NOOBJ_W * tf.sign(tf.floor(exp[i][j])) * (tf.square(output[i][j+4] - exp[i][j+4]))
+      res += NOOBJ_W * tf.sign(tf.floor(label[i][j])) * (tf.square(output[i][j+4] - label[i][j+4]))
 
-      res += COORD_W * tf.sign(exp[i][j+7]) * (tf.square(output[i][j+5] - exp[i][j+5]) + tf.square(output[i][j+6]-exp[i][j+6]) + 
-                                               tf.square(tf.sqrt(tf.abs(output[i][j+7])) - tf.sqrt(exp[i][j+7])) + 
-                                               tf.square(tf.sqrt(tf.abs(output[i][j+8])) - tf.sqrt(exp[i][j+8])))
+      res += COORD_W * tf.sign(label[i][j+7]) * (tf.square(output[i][j+5] - label[i][j+5]) + tf.square(output[i][j+6]-label[i][j+6]) + 
+                                               tf.square(output[i][j+7]/(label[i][j+7]+1e-7) - 1) + 
+                                               tf.square(output[i][j+8]/(label[i][j+8]+1e-7) - 1))
 
-      res += tf.sign(exp[i][j+7]) * (tf.square(output[i][j+9] - exp[i][j+9]))
+      res += tf.sign(label[i][j+7]) * (tf.square(output[i][j+9] - label[i][j+9]))
 
-      res += NOOBJ_W * tf.sign(tf.floor(exp[i][j+5])) * (tf.square(output[i][j+9] - exp[i][j+9]))
+      res += NOOBJ_W * tf.sign(tf.floor(label[i][j+5])) * (tf.square(output[i][j+9] - label[i][j+9]))
 
-      res += tf.sign(exp[i][j+7]) * (tf.square(output[i][j+10] - exp[i][j+10]) + tf.square(output[i][j+11] - exp[i][j+11]))
+      res += tf.sign(label[i][j+7]) * (tf.square(output[i][j+10] - label[i][j+10]) + tf.square(output[i][j+11] - label[i][j+11]))
 
   return res
 
@@ -309,7 +324,7 @@ def main(argv=None):
 
   train_data_node = tf.placeholder(
       tf.float32,
-      shape=(BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, NUM_CHANNELS))
+      shape=(BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, NUM_CHANNELS+2))
   train_labels_node = tf.placeholder(tf.float32, shape=(BATCH_SIZE, S*S*(B*5+CLASSES)))
 
   logits = model(train_data_node, True)
@@ -325,7 +340,7 @@ def main(argv=None):
   learning_rate = tf.train.exponential_decay(
       0.01,                
       batch * BATCH_SIZE,  
-      TRAIN_SIZE,          
+      10000,          
       0.95,
       staircase=True)
 
@@ -357,6 +372,7 @@ def main(argv=None):
 
       if step % EVAL_FREQUENCY == 0:
         print('loss: %.6f' % los)
+        #print('weight: %.5f' % sess.run(conv1_weights)[0,0,0,0])
         writer.add_summary(summary, step)
     save_path = saver.save(sess, SAVE_MODEL)
 
