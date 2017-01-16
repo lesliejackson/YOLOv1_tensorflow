@@ -298,27 +298,44 @@ def loss_func_yolo(output, label):
 
   return res
 
-def test(img):
+def test_from_img(img, display_loss=False):
   with tf.Session() as sess:
     tf.global_variables_initializer().run()
     saver = tf.train.Saver()
     saver.restore(sess, TEST_MODEL)
     data = extract_data_yolo(img, train=False)
     out = sess.run(model(data))
+    if display_loss:
+      label = extract_labels_yolo([img], train=False)
+      print('loss: %.6f' % loss_func_yolo(out, label))
     results,classes = get_results(out)
     show_results(img, results, classes)
 
-def test_loss():
-  loss = 0
-  for root, dirs, files in os.walk(TEST_IMG_DIR):
-    for file in files:
-      img = os.path.join(root, file)
-      label = extract_labels_yolo([img], train=False)
-      data = extract_data_yolo(img, train=False)
-      out = sess.run(model(data))
-      loss += loss_func_yolo(out, label)
-
-  return loss
+def test_from_dir(imgdir, display_loss=False):
+  with tf.Session() as sess:
+    tf.global_variables_initializer().run()
+    saver = tf.train.Saver()
+    saver.restore(sess, TEST_MODEL)
+    if display_loss:
+      loss = 0
+      for root, dirs, files in os.walk(TEST_IMG_DIR):
+        for file in files:
+          img = os.path.join(root, file)
+          label = extract_labels_yolo([img], train=False)
+          data = extract_data_yolo(img, train=False)
+          out = sess.run(model(data))
+          loss += loss_func_yolo(out, label)
+          results,classes = get_results(out)
+          show_results(img, results, classes)
+      print('loss: %.6f' % loss)
+    else:
+      for root, dirs, files in os.walk(TEST_IMG_DIR):
+        for file in files:
+          img = os.path.join(root, file)
+          data = extract_data_yolo(img, train=False)
+          out = sess.run(model(data))
+          results,classes = get_results(out)
+          show_results(img, results, classes)
 
 def main(argv=None):
   num_epochs = NUM_EPOCHS
@@ -380,13 +397,14 @@ def main(argv=None):
         #print('weight: %.5f' % sess.run(conv1_weights)[0,0,0,0])
         writer.add_summary(summary, step)
     save_path = saver.save(sess, SAVE_MODEL)
-    print('test loss: %.6f' % test_loss())
+    test_from_dir(TEST_IMG_DIR, display_loss=True)
 
 def parse_args():
     parser = argparse.ArgumentParser(description='YOLO demo')
     parser.add_argument('--train', help='train the model', action='store_true')
     parser.add_argument('--test', help='test the model', action='store_true')
     parser.add_argument('--test_img_path', help='img path to test', type=str)
+    parser.add_argument('--display_loss', default=False, help='whether display the loss', action='store_true')
 
     args = parser.parse_args()
 
@@ -397,5 +415,7 @@ if __name__ == '__main__':
     print('Error: cannot train and test at the same time')
   elif args.train:
     tf.app.run()
+  elif args.test_img_path[-1] == '/':
+    test_from_dir(args.test_img_path, args.display_loss)
   else:
-    test(args.test_img_path)
+    test_from_img(args.test_img_path, args.display_loss)
