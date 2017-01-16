@@ -110,7 +110,7 @@ def model(data, train=False):
   fc3_out = tf.maximum(alpha*fc3_hidden, fc3_hidden)
 
   coors = tf.matmul(fc3_out, fc4_weights) + fc4_biases
-  output = tf.zeros(BATCH_SIZE, S*S*(B*5+CLASSES)], dtype=tf.float32)
+  output = tf.zeros([BATCH_SIZE, S*S*(B*5+CLASSES)], dtype=tf.float32)
 
   for i in range(BATCH_SIZE):
     for j in range(S*S):
