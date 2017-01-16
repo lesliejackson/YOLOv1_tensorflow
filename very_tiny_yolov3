@@ -33,7 +33,8 @@ EVAL_FREQUENCY = 100
 TRAIN_IMG_DIR = '/home/yy/train/'
 TRAIN_LABEL_DIR = '/home/yy/labels/'
 CLASSES_NAME = ["DaLai","NonDaLai"]
-TEST_IMG_DIR = '/home/yy/test'
+TEST_IMG_DIR = '/home/yy/test/'
+TEST_LABEL_DIR = 'home/yy/test_labels/'
 RES_DIR = '/home/yy/pred_decay1W/'
 SAVE_MODEL = '/home/yy/tf_saver_models/model_conv5_epoch100_decay10000.ckpt'
 SAVE_TENSORBOARD = '/home/yy/tensorboard'
@@ -241,7 +242,11 @@ def iou(box1,box2):
   return intersection / (box1[2]*box1[3] + box2[2]*box2[3] - intersection)
 
 
-def extract_labels_yolo(path_list):
+def extract_labels_yolo(path_list, train=True):
+  if train:
+    root = TRAIN_LABEL_DIR
+  else:
+    root = TEST_LABEL_DIR
   labels = numpy.ndarray(shape=(len(path_list),S*S*(B*5+CLASSES)), dtype=numpy.float32)
   for i in range(labels.shape[0]):
     for j in range(labels.shape[1]):
@@ -250,7 +255,7 @@ def extract_labels_yolo(path_list):
       else:
         labels[i][j] = 0
   for i in range(len(path_list)):
-    with open(TRAIN_LABEL_DIR + path_list[i] + '.txt',"r") as f:
+    with open(root + path_list[i] + '.txt',"r") as f:
       lines = f.readlines()
       for j in range(len(lines)):
         data = lines[j].split()
@@ -298,7 +303,7 @@ def test(img):
     tf.global_variables_initializer().run()
     saver = tf.train.Saver()
     saver.restore(sess, TEST_MODEL)
-    data = extract_data_yolo(img, False)
+    data = extract_data_yolo(img, train=False)
     out = sess.run(model(data))
     results,classes = get_results(out)
     show_results(img, results, classes)
@@ -308,7 +313,7 @@ def test_loss():
   for root, dirs, files in os.walk(TEST_IMG_DIR):
     for file in files:
       img = os.path.join(root, file)
-      label = extract_labels_yolo([img])
+      label = extract_labels_yolo([img], train=False)
       data = extract_data_yolo(img, train=False)
       out = sess.run(model(data))
       loss += loss_func_yolo(out, label)
