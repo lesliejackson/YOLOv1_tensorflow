@@ -33,12 +33,11 @@ EVAL_FREQUENCY = 100
 TRAIN_IMG_DIR = '/home/yy/train/'
 TRAIN_LABEL_DIR = '/home/yy/labels/'
 CLASSES_NAME = ["DaLai","NonDaLai"]
-TEST_IMG_DIR = '/home/yy/test/'
-TEST_LABEL_DIR = 'home/yy/test_labels/'
-RES_DIR = '/home/yy/pred_decay1W/'
-SAVE_MODEL = '/home/yy/tf_saver_models/model_conv5_epoch100_decay10000.ckpt'
+TEST_IMG_DIR = '/home/yy/train/'
+TEST_LABEL_DIR = 'home/yy/labels/'
+RES_DIR = '/home/yy/subnets/'
+SAVE_MODEL = '/home/yy/tf_saver_models/model_subnets.ckpt'
 SAVE_TENSORBOARD = '/home/yy/tensorboard'
-TEST_MODEL = '/home/yy/tf_saver_models/model_conv5_epoch100_decay10000.ckpt'
 
 
 conv1_weights = tf.Variable(tf.truncated_normal([3, 3, NUM_CHANNELS+2, 64], stddev=0.01, seed=SEED, dtype=tf.float32))
@@ -99,7 +98,7 @@ def model(data, train=False):
   fc1_hidden = tf.matmul(reshape, fc1_weights) + fc1_biases
   fc1_out = tf.maximum(alpha*fc1_hidden, fc1_hidden)
 
-  probs = tf.matmul(fc1_out, fc2_weights) + fc2_biases
+  coors = tf.matmul(fc1_out, fc2_weights) + fc2_biases
 
   pool = tf.nn.avg_pool(lrelu, ksize=[1, IMAGE_SIZE*IMAGE_SIZE/1024, IMAGE_SIZE*IMAGE_SIZE/1024, 1], strides=[1, IMAGE_SIZE*IMAGE_SIZE/1024, IMAGE_SIZE*IMAGE_SIZE/1024, 1], padding='SAME')
   
@@ -109,15 +108,16 @@ def model(data, train=False):
   fc3_hidden = tf.matmul(reshape, fc3_weights) + fc3_biases
   fc3_out = tf.maximum(alpha*fc3_hidden, fc3_hidden)
 
-  coors = tf.matmul(fc3_out, fc4_weights) + fc4_biases
-  output = tf.zeros([BATCH_SIZE, S*S*(B*5+CLASSES)], dtype=tf.float32)
+  probs = tf.matmul(fc3_out, fc4_weights) + fc4_biases
+  output = []
 
   for i in range(BATCH_SIZE):
     for j in range(S*S):
-      output[i,j*(B*5+CLASSES):j*(B*5+CLASSES)+5] = coors[i,j*B*5:j*B*5+5]
-      output[i,j*(B*5+CLASSES)+5:j*(B*5+CLASSES)+5+CLASSES] = probs[i, j*CLASSES:j*CLASSES+CLASSES]
-      output[i,j*(B*5+CLASSES)+5+CLASSES:j*(B*5+CLASSES)+5+CLASSES+5] = coors[i,j*B*5+5:j*B*5+5+5]
-      output[i,j*(B*5+CLASSES)+5+CLASSES+5:j*(B*5+CLASSES)+5+CLASSES+5+CLASSES] = probs[i, j*CLASSES+CLASSES:j*CLASSES+CLASSES+CLASSES]
+      for k in range(10):
+        output.append(coors[i,j*B*5+k])
+      for k in range(CLASSES):
+        output.append(probs[i,j*CLASSES+k])
+  output = tf.reshape(output, [BATCH_SIZE, S*S*(B*5+CLASSES)])
 
   return output
 
@@ -298,11 +298,11 @@ def loss_func_yolo(output, label):
 
   return res
 
-def test_from_img(img, display_loss=False):
+def test_from_img(img, test_model, display_loss=False):
   with tf.Session() as sess:
     tf.global_variables_initializer().run()
     saver = tf.train.Saver()
-    saver.restore(sess, TEST_MODEL)
+    saver.restore(sess, test_model)
     data = extract_data_yolo(img, train=False)
     out = sess.run(model(data))
     if display_loss:
@@ -311,14 +311,14 @@ def test_from_img(img, display_loss=False):
     results,classes = get_results(out)
     show_results(img, results, classes)
 
-def test_from_dir(imgdir, display_loss=False):
+def test_from_dir(imgdir, test_model, display_loss=False):
   with tf.Session() as sess:
     tf.global_variables_initializer().run()
     saver = tf.train.Saver()
-    saver.restore(sess, TEST_MODEL)
+    saver.restore(sess, test_model)
     if display_loss:
       loss = 0
-      for root, dirs, files in os.walk(TEST_IMG_DIR):
+      for root, dirs, files in os.walk(imgdir[:-1]):
         for file in files:
           img = os.path.join(root, file)
           label = extract_labels_yolo([img], train=False)
@@ -329,7 +329,7 @@ def test_from_dir(imgdir, display_loss=False):
           show_results(img, results, classes)
       print('loss: %.6f' % loss)
     else:
-      for root, dirs, files in os.walk(TEST_IMG_DIR):
+      for root, dirs, files in os.walk(imgdir[:-1]):
         for file in files:
           img = os.path.join(root, file)
           data = extract_data_yolo(img, train=False)
@@ -405,7 +405,7 @@ def parse_args():
     parser.add_argument('--test', help='test the model', action='store_true')
     parser.add_argument('--test_img_path', help='img path to test', type=str)
     parser.add_argument('--display_loss', default=False, help='whether display the loss', action='store_true')
-
+    parser.add_argument('--test_model', help='model to test', type=str)
     args = parser.parse_args()
 
     return args
@@ -416,6 +416,6 @@ if __name__ == '__main__':
   elif args.train:
     tf.app.run()
   elif args.test_img_path[-1] == '/':
-    test_from_dir(args.test_img_path, args.display_loss)
+    test_from_dir(args.test_img_path, args.test_model, args.display_loss)
   else:
-    test_from_img(args.test_img_path, args.display_loss)
+    test_from_img(args.test_img_path, args.test_model, args.display_loss)
