@@ -8,4 +8,5 @@ YOLOv1 tensorflow
 
 (3)  add position information into original RGB img
 
-####for very_tiny_yolov3:split the entire network into two subnets, one for obj classification and one for coors regression, In order to solve the contradiction between the translation-invariant of classification problem and the translation-variant of coordinate regression
+####for very_tiny_yolov3:
+split the entire network into two subnets, one for obj classification and one for coors regression, In order to solve the contradiction between the translation-invariant of classification problem and the translation-variant of coordinate regression
