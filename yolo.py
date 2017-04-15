@@ -387,7 +387,7 @@ def main(argv=None):
 
   batch = tf.Variable(0, dtype=tf.float32)
 
-  optimizer = tf.train.AdamOptimizer(learning_rate,0.9).minimize(loss, global_step=batch)
+  optimizer = tf.train.AdamOptimizer(FLAGS.learning_rate).minimize(loss, global_step=batch)
 
   tf.summary.scalar("loss", loss)
   merged_summary = tf.summary.merge_all()
