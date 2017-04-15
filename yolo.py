@@ -16,29 +16,30 @@ import tensorflow as tf
 
 
 flags = tf.app.flags
-flags.DEFINE_integer("epoch", 30, "Epoch to train [25]")
+flags.DEFINE_integer("epoch", 25, "Epoch to train [25]")
 flags.DEFINE_integer("S", 7, "cut the img to S*S grids[7]")
 flags.DEFINE_integer("num_classes", 2, "number of classes [2]")
 flags.DEFINE_integer("B", 2, "number of bboxs for one grid to predict [2]")
-flags.DEFINE_float("learning_rate", 0.0001, "Learning rate of for d network [0.0001]")
+flags.DEFINE_float("learning_rate", 0.001, "Learning rate of for d network [0.0001]")
 flags.DEFINE_float("alpha", 0.1, "alpha of leaky relu [0.1]")
 flags.DEFINE_float("nms_threshold", 0.5, "threshold of nms [0.5]")
 flags.DEFINE_float("prob_threshold", 0.25, "probablity threshold of test [0.25]")
 flags.DEFINE_float("coordinate_weight", 5, "weight of coordinate regression in loss function [5]")
 flags.DEFINE_float("noobj_weight", 0.5, "weight of confidence regression in loss function when there is no obj in grid [0.5]")
-flags.DEFINE_integer("batch_size", 128, "The size of batch images [128]")
-flags.DEFINE_integer("img_size", 448, "image size [448]")
+flags.DEFINE_integer("batch_size", 1, "The size of batch images [128]")
+flags.DEFINE_integer("img_size", 224, "image size [224]")
 flags.DEFINE_integer("channel_dim", 3, "Dimension of image color [3]")
 flags.DEFINE_integer("save_summary_step", 100, "save summary per [] steps [100]")
 flags.DEFINE_integer("save_model_step", 100, "save model per [] steps [100]")
+flags.DEFINE_integer("log_loss_step", 100, "log loss information per [] steps [100]")
 flags.DEFINE_string("checkpoint_dir", None, "Directory name to save the checkpoints")
 flags.DEFINE_string("tensorboard_dir", None, "Directory name to save the tensorboard")
 flags.DEFINE_string("train_dir", None, "Directory name to train images")
 flags.DEFINE_string("train_label", None, "Directory name to train labels")
-flags.DEFINE_string("test_dir", None, "Directory name to save the test image samples")
+flags.DEFINE_string("test_res_dir", None, "Directory name to save test images")
 flags.DEFINE_string("test_data", None, "Directory name to test images")
-flags.DEFINE_string("test_labels", None, "Directory name to test labels")
-flags.DEFINE_boolean("is_train", False, "True for training, False for testing [False]")
+flags.DEFINE_string("test_label", None, "Directory name to test labels")
+flags.DEFINE_boolean("is_test", False, "True for testing, False for training [False]")
 FLAGS = flags.FLAGS
 
 CLASSES_NAME = ["DaLai","NonDaLai"]
@@ -131,6 +132,7 @@ def model(data):
 
 def nms(dets, thresh):
   """Non maximum suppression"""
+  """code from rbg/py-faster-rcnn"""
   x1 = dets[:, 0]
   y1 = dets[:, 1]
   x2 = dets[:, 2]
@@ -198,7 +200,7 @@ def show_results(img_path, results, classes):
       cv2.rectangle(img, (x1,y1), (x2,y2), (0,255,0), 2)
       cv2.putText(img, CLASSES_NAME[classes[i]] + ' : %.2f' % results[i][4], (x1+5,y1-7), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0), 2)
 
-  cv2.imwrite(FLAGS.test_dir + img_path.split('/')[-1], img)
+  cv2.imwrite(FLAGS.test_res_dir + '/' + img_path.split('/')[-1], img)
 
 def get_next_minibatch(offset, path_list):
   if offset+FLAGS.batch_size > len(path_list):
@@ -221,7 +223,7 @@ def extract_data_yolo(path_list, train=True):
           data[i,:,j,-1] = j
 
     for i in range(len(path_list)):
-      img = Image.open(FLAGS.train_dir+path_list[i]+'.jpg')
+      img = Image.open(FLAGS.train_dir+'/'+path_list[i]+'.jpg')
       img_resize = img.resize((FLAGS.img_size,FLAGS.img_size))
       data[i,:,:,:-2] = numpy.array(img_resize).astype(numpy.float32).reshape(FLAGS.img_size,FLAGS.img_size,FLAGS.channel_dim)
     
@@ -261,7 +263,7 @@ def extract_labels_yolo(path_list, train=True):
       else:
         labels[i][j] = 0
   for i in range(len(path_list)):
-    with open(root + path_list[i] + '.txt',"r") as f:
+    with open(root + '/' + path_list[i] + '.txt',"r") as f:
       lines = f.readlines()
       for j in range(len(lines)):
         data = lines[j].split()
@@ -326,9 +328,10 @@ def test_from_dir(imgdir,display_loss=False):
     else:
       print("Failed to find a checkpoint")
 
+    #saver.restore(sess, FLAGS.checkpoint_dir)
     if display_loss:
       loss = 0
-      for root, dirs, files in os.walk(imgdir[:-1]):
+      for root, dirs, files in os.walk(imgdir):
         for file in files:
           img = os.path.join(root, file)
           label = extract_labels_yolo([img], train=False)
@@ -339,17 +342,22 @@ def test_from_dir(imgdir,display_loss=False):
           show_results(img, results, classes)
       print('loss: %.6f' % loss)
     else:
-      for root, dirs, files in os.walk(imgdir[:-1]):
+      for root, dirs, files in os.walk(imgdir):
         for file in files:
           img = os.path.join(root, file)
           data = extract_data_yolo(img, train=False)
+          data = preprocessing(data, train=False)
           out = sess.run(model(data))
           results,classes = get_results(out)
           show_results(img, results, classes)
 
-def preprocessing(imgs):
+def preprocessing(imgs, train=True):
   res = []
-  for i in range(FLAGS.batch_size):
+  if train:
+    size = FLAGS.batch_size
+  else:
+    size = 1
+  for i in range(size):
     res.append(tf.image.per_image_standardization(imgs[i]))
   return tf.stack(res)
 
@@ -364,7 +372,7 @@ def main(argv=None):
   train_data_node = tf.placeholder(
       tf.float32,
       shape=(FLAGS.batch_size, FLAGS.img_size, FLAGS.img_size, FLAGS.channel_dim+2))
-  train_labels_node = tf.placeholder(tf.float32, shape=(FLAGS.batch_size, FLAGS.S*FLAGS.S*(FLAGS.B*5+CLASSES)))
+  train_labels_node = tf.placeholder(tf.float32, shape=(FLAGS.batch_size, FLAGS.S*FLAGS.S*(FLAGS.B*5+FLAGS.num_classes)))
 
   train_data_node = preprocessing(train_data_node)
   logits = model(train_data_node)
@@ -379,7 +387,7 @@ def main(argv=None):
 
   batch = tf.Variable(0, dtype=tf.float32)
 
-  optimizer = tf.train.RMSPropOptimizer(FLAGS.learning_rate).minimize(loss, global_step=batch)
+  optimizer = tf.train.AdamOptimizer(learning_rate,0.9).minimize(loss, global_step=batch)
 
   tf.summary.scalar("loss", loss)
   merged_summary = tf.summary.merge_all()
@@ -390,8 +398,17 @@ def main(argv=None):
     print('Initialized!')
     writer = tf.summary.FileWriter(FLAGS.tensorboard_dir, sess.graph)
 
+    print("loding models...")
+    ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_dir)
+    if ckpt and ckpt.model_checkpoint_path:
+      ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
+      saver.restore(sess, os.path.join(FLAGS.checkpoint_dir, ckpt_name))
+      print("Success to load {}".format(ckpt_name))
+    else:
+      print("Failed to find a checkpoint")
+
+    start_time = time.time()
     for step in xrange(int(FLAGS.epoch * train_size) // FLAGS.batch_size):
-      start_time = time.time()
       offset = (step * FLAGS.batch_size) % (train_size - FLAGS.batch_size)
       batch_data = extract_data_yolo(get_next_minibatch(offset, train_img_list))
       batch_labels = extract_labels_yolo(get_next_minibatch(offset, train_img_list))
@@ -401,17 +418,17 @@ def main(argv=None):
 
       _, los, summary = sess.run([optimizer, loss, merged_summary], feed_dict=feed_dict)
 
-      end_time = time.time()
-      print('loss: %.6f time: %.2f' % (los, end_time-start_time))
-
-      if step%FLAGS.save_summary_step:
+      if step%FLAGS.log_loss_step == 0:
+        end_time = time.time()
+        print('loss: %.6f time: %.2f' % (los, end_time-start_time))
+        start_time = time.time()
+      if step%FLAGS.save_summary_step == 0:
         writer.add_summary(summary, step)
-      if step%FLAGS.save_model_step:
+      if step%FLAGS.save_model_step == 0:
         save_path = saver.save(sess, os.path.join(FLAGS.checkpoint_dir, "yolo.model"), global_step=step)
 
-    return args
 if __name__ == '__main__':
-  if FLAGS.train:
+  if not FLAGS.is_test:
     tf.app.run()
   else:
     test_from_dir(FLAGS.test_data)
