@@ -1,5 +1,6 @@
 # YOLOv1_tf
-Tensorflow implementation of [You Only Look Once:Unified, Real-Time Object Detection](https://arxiv.org/pdf/1506.02640.pdf) 
+A simple Tensorflow implementation of [You Only Look Once:Unified, Real-Time Object Detection](https://arxiv.org/pdf/1506.02640.pdf) 
+for face detection and recognition
 # Results
 ![](/some_tests/108.jpg)  ![](/some_tests/109.jpg)
 ![](/some_tests/126.jpg)  ![](/some_tests/152.jpg)
